@@ -10,7 +10,6 @@ const engine = new BN.Engine(canvas, true);
 let selectedRoot: BN.TransformNode | null = null; 
 const handles: BN.Mesh[] = []; 
 
-
 // Prepare scene
 function createScene(): BN.Scene
 {
@@ -34,60 +33,91 @@ function createScene(): BN.Scene
   const light = new BN.HemisphericLight('light', new BN.Vector3(0, 1, 0), scene);
 
   const assetsManager = new BN.AssetsManager(scene);
-
-  const modelTask = assetsManager.addMeshTask(
+  
+  // Add a couple different table models
+  const modelTask0 = assetsManager.addMeshTask(
     'modelTask', 
     '', 
     './models/', 
     'rec_table1.glb'
   );
+  const modelTask1 = assetsManager.addMeshTask(
+    'modelTask', 
+    '', 
+    './models/', 
+    'rec_table2.glb'
+  );
+  const modelTask2 = assetsManager.addMeshTask(
+    'modelTask', 
+    '', 
+    './models/', 
+    'round_table1.glb'
+  );
+  const modelTask3 = assetsManager.addMeshTask(
+    'modelTask', 
+    '', 
+    './models/', 
+    'round_table2.glb'
+  );
 
-  let rootNode = new BN.TransformNode("rootNode", scene);
+  const modelTasks: BN.MeshAssetTask[] = [modelTask0, modelTask1, modelTask2, modelTask3];
 
-  modelTask.onSuccess = (task) => 
-  {
-    // Reparent meshes to a new node - to standardize hierarchy across meshes
+  // Distance between loaded models
+  const spaceDistance = 5;
 
-    task.loadedMeshes[0].getChildMeshes().forEach((m) => {
-      m.parent = rootNode;
-    });
+  modelTasks.forEach((modelTask, index) => {
+    modelTask.onSuccess = (task) => 
+      {
+        // Reparent meshes to a new node - to standardize hierarchy across meshes
+        let rootNode = new BN.TransformNode(`rootNode${index}`, scene);
+        rootNode.position = new BN.Vector3(0, 0, spaceDistance*index);
     
-    // Enable selection of models
-    scene.onPointerObservable.add( (pointerInfo) =>
-    {
-      if(pointerInfo.type === BN.PointerEventTypes.POINTERTAP)
+        task.loadedMeshes[0].getChildMeshes().forEach((m) => {
+          m.parent = rootNode;
+        });
+        
+        // Enable selection of models
+        scene.onPointerObservable.add( (pointerInfo) =>
         {
-          const pick = scene.pick(scene.pointerX, scene.pointerY);
-         
-          const mesh = pick.pickedMesh!;
-    
-          if(mesh)
-          {
-            const root = mesh.parent;
-            if (root)
+          if(pointerInfo.type === BN.PointerEventTypes.POINTERTAP)
             {
-              SelectModel(root as BN.TransformNode);
+              const pick = scene.pick(scene.pointerX, scene.pointerY);
+             
+              const mesh = pick.pickedMesh!;
+        
+              if(mesh)
+              {
+                const root = mesh.parent;
+                if (root)
+                {
+                  SelectModel(root as BN.TransformNode);
+
+                  // Set selected model as camera's target and zoom in
+                  camera.setTarget(root as BN.TransformNode);
+                  camera.radius = 5;
+                }
+                else
+                {
+                  UnselectAll();
+                }
+              }
             }
-            else
-            {
-              UnselectAll();
-            }
-          }
-        }
-    });
-  }
-  
-  // Handle errors
-  modelTask.onError = (_task, message, exception) => 
-  {
-    console.error('Failed to load mesh:', message, exception);
-  };
+        });
+      }
+      
+      // Handle errors
+      modelTask.onError = (_task, message, exception) => 
+      {
+        console.error('Failed to load mesh:', message, exception);
+      };
+  });
   
   assetsManager.load();
   
   return scene;
 }
 
+// Create handles - spheres located on vertices located furthes away from models center on x axis
 function CreateHandles( mesh: BN.AbstractMesh )
 {
   const positions = mesh.getVerticesData(BN.VertexBuffer.PositionKind)!;
@@ -138,19 +168,19 @@ function CreateHandles( mesh: BN.AbstractMesh )
 
   for (const worldPos of worldExtremes) {
     
-    const s = BN.MeshBuilder.CreateSphere(
+    const sphereHandle = BN.MeshBuilder.CreateSphere(
       "HandleSphere", { diameter: 0.05 }, // Adjust diameter as needed
       mesh.getScene() // Ensure sphere is in the main scene
     );
-    s.position.copyFrom(worldPos);
-    s.isPickable = true;
-    s.material = handleMat;
+    sphereHandle.position.copyFrom(worldPos);
+    sphereHandle.isPickable = true;
+    sphereHandle.material = handleMat;
 
     // Create Drag Behavior per Sphere
     const dragBehavior = new BN.PointerDragBehavior({ dragAxis: new BN.Vector3(1, 0, 0) });
     
     dragBehavior.useObjectOrientationForDragging = false;
-    s.addBehavior(dragBehavior); // Add unique behavior instance
+    sphereHandle.addBehavior(dragBehavior); // Add unique behavior instance
 
     // Store initial state on Drag Start
     let initialScaleX = 1;
@@ -160,7 +190,7 @@ function CreateHandles( mesh: BN.AbstractMesh )
     dragBehavior.onDragStartObservable.add(() => {
       if (selectedRoot) {
         initialScaleX = selectedRoot.scaling.x;
-        initialHandlePosition = s.position.clone(); 
+        initialHandlePosition = sphereHandle.position.clone(); 
         initialMeshCenter = selectedRoot.getAbsolutePosition().clone(); 
       }
     });
@@ -168,7 +198,7 @@ function CreateHandles( mesh: BN.AbstractMesh )
     // Apply Scaling on Drag End 
     dragBehavior.onDragEndObservable.add(() => {
       if (selectedRoot) {
-        const currentHandlePosition = s.position;
+        const currentHandlePosition = sphereHandle.position;
 
         // Calculate distance from center along X-axis only
         const initialDistX = Math.abs(initialHandlePosition.x - initialMeshCenter.x);
@@ -187,7 +217,7 @@ function CreateHandles( mesh: BN.AbstractMesh )
     });
 
     // Add sphere to global handles array
-    handles.push(s); 
+    handles.push(sphereHandle); 
   }
 }
 
@@ -199,6 +229,7 @@ function SelectModel ( root: BN.TransformNode )
     handles.pop()?.dispose();
   }
 
+  // Set current model as global variable
   selectedRoot = root;
 
   // Assuming the root node itself doesn't have vertices, process its children
@@ -211,6 +242,7 @@ function SelectModel ( root: BN.TransformNode )
   });
 }
 
+// Reset model selection and get rid of handles
 function UnselectAll()
 {
   while(handles.length) {
