@@ -38,9 +38,32 @@ function createScene(): BN.Scene
     'rec_table1.glb'
   );
 
+  let rootNode = new BN.TransformNode("rootNode", scene);
+
   modelTask.onSuccess = (task) => 
   {
-    console.log(task.loadedMeshes);
+    // Reparent meshes to a new node - to standardize hierarchy across meshes
+
+    task.loadedMeshes[0].getChildMeshes().forEach((m) => {
+      m.parent = rootNode;
+    });
+    
+    // Enable selection of models
+    scene.onPointerObservable.add( (pointerInfo) =>
+    {
+      if(pointerInfo.type === BN.PointerEventTypes.POINTERPICK)
+        {
+          const pick = scene.pick(scene.pointerX, scene.pointerY);
+         
+          const mesh = pick.pickedMesh!;
+    
+          if(mesh)
+          {
+            const root = mesh.parent;
+            console.log(root);
+          }
+        }
+    });
   }
   
   // Handle errors
@@ -50,9 +73,10 @@ function createScene(): BN.Scene
   };
   
   assetsManager.load();
-
+  
   return scene;
 }
+
 
 // Create the scene
 const scene = createScene();
