@@ -1,11 +1,15 @@
 import * as BN from '@babylonjs/core';
 import '@babylonjs/loaders';
 import './style.css'
-import { AddInspector, ShowPivot } from './debug';
+import { AddInspector } from './debug';
 
 // Create the canvas and engine
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
 const engine = new BN.Engine(canvas, true);
+
+let selectedRoot: BN.TransformNode | null = null; 
+const handles: BN.Mesh[] = []; 
+
 
 // Prepare scene
 function createScene(): BN.Scene
@@ -23,7 +27,7 @@ function createScene(): BN.Scene
   );
   camera.attachControl(true);
   camera.lowerRadiusLimit = 1;
-  camera.upperRadiusLimit = 10;
+  camera.upperRadiusLimit = 20;
   camera.wheelDeltaPercentage = 0.01;
 
   // Create a light
@@ -46,13 +50,12 @@ function createScene(): BN.Scene
 
     task.loadedMeshes[0].getChildMeshes().forEach((m) => {
       m.parent = rootNode;
-      ShowPivot(m, BN.Color3.Blue());
     });
     
     // Enable selection of models
     scene.onPointerObservable.add( (pointerInfo) =>
     {
-      if(pointerInfo.type === BN.PointerEventTypes.POINTERPICK)
+      if(pointerInfo.type === BN.PointerEventTypes.POINTERTAP)
         {
           const pick = scene.pick(scene.pointerX, scene.pointerY);
          
@@ -61,8 +64,13 @@ function createScene(): BN.Scene
           if(mesh)
           {
             const root = mesh.parent;
-            if (root) {
-              SelectModel(root);
+            if (root)
+            {
+              SelectModel(root as BN.TransformNode);
+            }
+            else
+            {
+              UnselectAll();
             }
           }
         }
@@ -80,34 +88,135 @@ function createScene(): BN.Scene
   return scene;
 }
 
-function SelectModel ( root: BN.Node )
+function CreateHandles( mesh: BN.AbstractMesh )
 {
-  let stretch = 0;
-  let stretchingUp = true;
-  scene.registerBeforeRender( function() 
-  {
-    (root as BN.TransformNode).scaling.x = 1 + stretch;
+  const positions = mesh.getVerticesData(BN.VertexBuffer.PositionKind)!;
 
-    if (stretchingUp) 
-      {
-        if (stretch < 3) {
-            stretch += 0.01;
-        } else {
-            stretchingUp = false;
-        }
-      } 
-    else 
-    {
-        if (stretch > 0)
-        {
-          stretch -= 0.01;
-        } 
-        else 
-        {
-          stretchingUp = true;
-        }
+  let minX =  Infinity;
+  let maxX = -Infinity;
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+
+  const eps = 1e-3;
+  const localExtremes: BN.Vector3[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i];
+    // Get vertices close to the min and max X bounds
+    if (Math.abs(x - minX) < eps || Math.abs(x - maxX) < eps) {
+      // Check if a similar vertex (in local space) is already added - crude deduplication
+      let foundSimilar = false;
+      for(const existing of localExtremes){
+          if( BN.Vector3.DistanceSquared(existing, new BN.Vector3(x, positions[i + 1], positions[i + 2])) < eps * eps){
+              foundSimilar = true;
+              break;
+          }
+      }
+      if (!foundSimilar) {
+        localExtremes.push(new BN.Vector3(
+          x,
+          positions[i + 1],
+          positions[i + 2],
+        ));
+      }
     }
-  } )
+  }
+
+  const worldMatrix = mesh.getWorldMatrix();
+
+  // Get the world positions for the handles based on current mesh transform
+  const worldExtremes = localExtremes.map(local =>
+    BN.Vector3.TransformCoordinates(local, worldMatrix)
+  );
+
+  const handleMat = new BN.StandardMaterial("handleMat", mesh.getScene());
+  handleMat.diffuseColor = BN.Color3.Yellow();
+  handleMat.emissiveColor = BN.Color3.Yellow();
+  handleMat.disableLighting = true;
+
+  for (const worldPos of worldExtremes) {
+    
+    const s = BN.MeshBuilder.CreateSphere(
+      "HandleSphere", { diameter: 0.05 }, // Adjust diameter as needed
+      mesh.getScene() // Ensure sphere is in the main scene
+    );
+    s.position.copyFrom(worldPos);
+    s.isPickable = true;
+    s.material = handleMat;
+
+    // Create Drag Behavior per Sphere
+    const dragBehavior = new BN.PointerDragBehavior({ dragAxis: new BN.Vector3(1, 0, 0) });
+    
+    dragBehavior.useObjectOrientationForDragging = false;
+    s.addBehavior(dragBehavior); // Add unique behavior instance
+
+    // Store initial state on Drag Start
+    let initialScaleX = 1;
+    let initialHandlePosition = new BN.Vector3();
+    let initialMeshCenter = new BN.Vector3();
+
+    dragBehavior.onDragStartObservable.add(() => {
+      if (selectedRoot) {
+        initialScaleX = selectedRoot.scaling.x;
+        initialHandlePosition = s.position.clone(); 
+        initialMeshCenter = selectedRoot.getAbsolutePosition().clone(); 
+      }
+    });
+
+    // Apply Scaling on Drag End 
+    dragBehavior.onDragEndObservable.add(() => {
+      if (selectedRoot) {
+        const currentHandlePosition = s.position;
+
+        // Calculate distance from center along X-axis only
+        const initialDistX = Math.abs(initialHandlePosition.x - initialMeshCenter.x);
+        const currentDistX = Math.abs(currentHandlePosition.x - initialMeshCenter.x);
+
+
+        if (initialDistX > 1e-5) { // Avoid division by zero
+          const scaleFactor = currentDistX / initialDistX;
+          selectedRoot.scaling.x = initialScaleX * scaleFactor;
+        } 
+
+        // TODO: Update handles positions instead of unselecting the model
+        UnselectAll();
+      }
+       
+    });
+
+    // Add sphere to global handles array
+    handles.push(s); 
+  }
+}
+
+// Make sure SelectModel clears old handles before creating new ones
+function SelectModel ( root: BN.TransformNode )
+{
+  // Clear previous handles if a different model is selected
+  while(handles.length) {
+    handles.pop()?.dispose();
+  }
+
+  selectedRoot = root;
+
+  // Assuming the root node itself doesn't have vertices, process its children
+  root.getChildMeshes().forEach( (childMesh) =>
+  {
+    // Only create handles for meshes that actually have vertices
+    if (childMesh instanceof BN.Mesh && childMesh.getVerticesData(BN.VertexBuffer.PositionKind)) {
+         CreateHandles(childMesh);
+    }
+  });
+}
+
+function UnselectAll()
+{
+  while(handles.length) {
+    handles.pop()?.dispose();
+  }
+  selectedRoot = null;
 }
 
 // Create the scene
