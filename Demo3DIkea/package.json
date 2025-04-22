@@ -1,0 +1,22 @@
+{
+  "name": "demo-3d-ikea",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.3.1"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.3.1",
+    "@babylonjs/gui": "^8.3.1",
+    "@babylonjs/inspector": "^8.3.1",
+    "@babylonjs/loaders": "^8.3.1",
+    "@babylonjs/serializers": "^8.3.1"
+  }
+}
