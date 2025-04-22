@@ -1,7 +1,7 @@
 import * as BN from '@babylonjs/core';
 import '@babylonjs/loaders';
 import './style.css'
-import { AddInspector } from './debug';
+import { AddInspector, ShowPivot } from './debug';
 
 // Create the canvas and engine
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
@@ -46,6 +46,7 @@ function createScene(): BN.Scene
 
     task.loadedMeshes[0].getChildMeshes().forEach((m) => {
       m.parent = rootNode;
+      ShowPivot(m, BN.Color3.Blue());
     });
     
     // Enable selection of models
@@ -60,7 +61,9 @@ function createScene(): BN.Scene
           if(mesh)
           {
             const root = mesh.parent;
-            console.log(root);
+            if (root) {
+              SelectModel(root);
+            }
           }
         }
     });
@@ -77,6 +80,35 @@ function createScene(): BN.Scene
   return scene;
 }
 
+function SelectModel ( root: BN.Node )
+{
+  let stretch = 0;
+  let stretchingUp = true;
+  scene.registerBeforeRender( function() 
+  {
+    (root as BN.TransformNode).scaling.x = 1 + stretch;
+
+    if (stretchingUp) 
+      {
+        if (stretch < 3) {
+            stretch += 0.01;
+        } else {
+            stretchingUp = false;
+        }
+      } 
+    else 
+    {
+        if (stretch > 0)
+        {
+          stretch -= 0.01;
+        } 
+        else 
+        {
+          stretchingUp = true;
+        }
+    }
+  } )
+}
 
 // Create the scene
 const scene = createScene();

@@ -1,4 +1,4 @@
-import {Scene} from '@babylonjs/core';
+import {Scene, AbstractMesh, TransformNode, Color3, MeshBuilder, StandardMaterial} from '@babylonjs/core';
 import {Inspector} from '@babylonjs/inspector'; 
 
 export function AddInspector(scene: Scene)
@@ -18,4 +18,15 @@ export function AddInspector(scene: Scene)
             }
         }
     });
+}
+
+export function ShowPivot(node: AbstractMesh | TransformNode, color: Color3)
+{
+  const pivotMarker = MeshBuilder.CreateSphere("pivotMarker", { diameter: 0.1 }, node.getScene());
+  pivotMarker.material = new StandardMaterial("pivotMat", node.getScene());
+  (pivotMarker.material as StandardMaterial).diffuseColor = color;
+  pivotMarker.isPickable = false;
+
+  // Position the marker at the node's pivot point
+  pivotMarker.position = node.getAbsolutePivotPoint();
 }
